@@ -31,6 +31,8 @@ declare module 'vue' {
     FileBrowser: typeof import('./components/FileBrowser.vue')['default']
     GamePackageTable: typeof import('./components/GamePackageTable.vue')['default']
     StatusTag: typeof import('./components/StatusTag.vue')['default']
+    ThemeIcon: typeof import('./components/ThemeIcon.vue')['default']
+    ThemeToggle: typeof import('./components/ThemeToggle.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']
