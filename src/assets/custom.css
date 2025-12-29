@@ -24,3 +24,77 @@
   box-shadow: none !important;
   min-height: 22px !important;
 }
+
+/* 固定左侧容器栏高度并启用滚动 */
+.left-aside-fixed {
+  height: 400px;
+  overflow-y: auto;
+}
+
+/* 主题CSS变量：light */
+:root {
+  --color-bg: #ffffff;
+  --color-bg-soft: #f5f7fa;
+  --color-text: #1f2937;
+  --color-text-secondary: #4b5563;
+  --color-primary: #409eff;
+  --color-border: #e5e7eb;
+  --shadow-soft: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --transition-duration: 400ms;
+  --selected-bg: #DBEAFE;
+  --selected-text: #1f2937;
+}
+
+/* 主题CSS变量：dark */
+[data-theme="dark"] {
+  --color-bg: #0f1216;
+  --color-bg-soft: #171a1f;
+  --color-text: #e5e7eb;
+  --color-text-secondary: #cbd5e1;
+  --color-primary: #66b1ff;
+  --color-border: #2b323b;
+  --shadow-soft: 0 1px 3px rgba(0,0,0,0.6), 0 1px 2px rgba(0,0,0,0.4);
+  --selected-bg: rgba(64,158,255,0.18);
+  --selected-text: #e5e7eb;
+}
+
+/* 全局颜色与背景过渡 */
+html, body, #app {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  transition: background-color var(--transition-duration) ease;
+}
+
+/* 常用块元素使用主题变量 */
+.card-like {
+  background-color: var(--color-bg);
+  box-shadow: var(--shadow-soft);
+  border-color: var(--color-border);
+}
+
+/* 轻柔的页面淡入淡出 */
+.theme-fade {
+  transition: opacity var(--transition-duration) ease;
+  opacity: 0.92;
+}
+
+/* 遮罩扩散转场：使用伪元素创建从中心扩散效果 */
+.theme-transition::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.08), rgba(255,255,255,0) 60%);
+  animation: mask-pop var(--transition-duration) ease;
+}
+
+@keyframes mask-pop {
+  0% { opacity: 0; }
+  20% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 深色下的图片轻微增强对比度，作为资源适配的兜底方案 */
+[data-theme="dark"] img {
+  filter: contrast(1.05) brightness(0.95);
+}

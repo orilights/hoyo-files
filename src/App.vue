@@ -107,7 +107,8 @@ function refreshVersionData() {
     })
   })
   chunkState.value.info = versionData.chunk
-  updateCollapseState.value = [`${Object.keys(packageList.value.update).at(0)}-${version.value}`]
+  const updateKeys = Object.keys(packageList.value.update)
+  updateCollapseState.value = updateKeys.length ? [`${updateKeys[0]}-${version.value}`] : []
   loadChunkData()
   loadFileList()
 }
@@ -259,9 +260,14 @@ onMounted(() => {
 
 <template>
   <el-container class="h-screen min-w-[900px] overflow-auto">
+    <!-- 固定高度的左侧容器栏，避免占满全屏，同时支持纵向滚动 -->
     <el-aside
       class="h-screen border-r p-4" width="auto"
     >
+      <!-- 主题切换按钮：位于左侧栏顶部 -->
+      <div class="mb-3 flex justify-center">
+        <ThemeToggle />
+      </div>
       <el-space direction="vertical" size="large" alignment="center">
         <div
           v-for="[key, gameConfig] in Object.entries(GAME_CONFIG)" :key="key"
@@ -283,7 +289,7 @@ onMounted(() => {
           @click="openLink(GITHUB_REPO_URL)"
         >
           <img
-            src="/icon/github.png" alt="GithubRepoUrl"
+            src="https://files.hk4e.com/icon/github.png" alt="GithubRepoUrl"
             class="size-[48px]"
           >
         </div>
@@ -295,9 +301,7 @@ onMounted(() => {
           <div
             v-for="ver in versionList" :key="ver"
             class="my-1 cursor-pointer rounded-lg px-4 py-1.5 text-sm transition-colors hover:bg-gray-100"
-            :class="{
-              '!bg-blue-100': version === ver,
-            }"
+            :style="version === ver ? { backgroundColor: 'var(--selected-bg)', color: 'var(--selected-text)' } : {}"
             @click="handleSelectVersion(ver)"
           >
             {{ ver }}
