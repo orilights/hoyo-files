@@ -114,7 +114,7 @@ const availableTabs = computed<{ id: TabId, label: string }[]>(() => {
   return tabs
 })
 
-const activeTab = ref<TabId>('files')
+const activeTab = ref<TabId>('packages')
 
 watch(availableTabs, (tabs) => {
   if (tabs.length && !tabs.some(t => t.id === activeTab.value))
@@ -124,7 +124,7 @@ watch(availableTabs, (tabs) => {
 watch(selectedVersion, () => {
   resetFileState()
   const tabs = availableTabs.value
-  if (tabs.length)
+  if (tabs.length && !tabs.some(t => t.id === activeTab.value))
     activeTab.value = tabs[0].id
   if (activeTab.value === 'files')
     loadMainFileList()
