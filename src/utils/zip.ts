@@ -1,12 +1,22 @@
 import type { GameFileRecord, PkgFile, VersionData, ZipSource } from '@/types'
 import { configure, Reader, Uint8ArrayWriter, ZipReader } from '@zip.js/zip.js'
+import zipWasmUrl from '@zip.js/zip.js/dist/zip-module.wasm?url'
+import zipWorkerUrl from '@zip.js/zip.js/dist/zip-web-worker.js?url'
 import { getZipDir, setZipDir } from './idb'
 
 /** 下载块大小：8 MiB（zip.js 默认 64 KiB 会导致串行小 Range 请求，速度极慢） */
 const READ_CHUNK_SIZE = 8 * 1024 * 1024
 
-/** 与项目主线程 WASM/zstd 解码一致，zip.js 解压也走主线程，避免 Vite worker 配置 */
-configure({ useWebWorkers: false })
+/**
+ * zip.js 解压走内置 Web Worker，避免大文件解压阻塞主线程。
+ * worker 脚本与 wasm 通过 Vite `?url` 导入获得哈希资源 URL（无需 Vite worker 配置）；
+ * 若 worker 启动失败，zip.js 会自动回退主线程解压，功能不受影响。
+ */
+configure({
+  useWebWorkers: true,
+  workerURI: zipWorkerUrl,
+  wasmURI: zipWasmUrl,
+})
 
 interface Part {
   url: string

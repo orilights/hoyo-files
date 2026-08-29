@@ -1,4 +1,5 @@
 import type { ParsedChunk } from '@/types'
+import { decodeZstd } from './zstdWorker'
 
 const CHUNK_CONCURRENCY = 4
 
@@ -8,10 +9,6 @@ export async function downloadChunks(
   signal: AbortSignal,
   onChunk: (decompressed: Uint8Array, index: number, total: number) => void | Promise<void>,
 ): Promise<void> {
-  const { ZSTDDecoder } = await import('zstddec')
-  const dec = new ZSTDDecoder()
-  await dec.init()
-
   const total = chunks.length
   const readyChunks = new Map<number, Uint8Array>()
   const stateWaiters: Array<() => void> = []
@@ -117,7 +114,7 @@ export async function downloadChunks(
     readyChunks.delete(nextConsumeIndex)
     pumpFetches()
 
-    const decompressed = dec.decode(compressed, chunks[nextConsumeIndex].uncompressedSize)
+    const decompressed = await decodeZstd(compressed, chunks[nextConsumeIndex].uncompressedSize)
     await onChunk(decompressed, nextConsumeIndex, total)
     nextConsumeIndex++
   }

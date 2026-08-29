@@ -1,7 +1,7 @@
 import type { ParsedManifest } from '@/types'
 import protobuf from 'protobufjs/light'
-import { ZSTDDecoder } from 'zstddec'
 import { getManifest, setManifest } from './idb'
+import { decodeZstd } from './zstdWorker'
 
 const root = new protobuf.Root()
 
@@ -30,19 +30,9 @@ root.add(
 
 const ManifestMsg = root.lookupType('Manifest')
 
-let zstdDecoder: ZSTDDecoder | null = null
-
-async function getDecoder(): Promise<ZSTDDecoder> {
-  if (!zstdDecoder) {
-    zstdDecoder = new ZSTDDecoder()
-    await zstdDecoder.init()
-  }
-  return zstdDecoder
-}
-
 export async function parseManifestBinary(data: Uint8Array, uncompressedSize: number): Promise<ParsedManifest> {
-  const dec = await getDecoder()
-  const decompressed = dec.decode(data, uncompressedSize)
+  // ZSTD 解压移入 worker；protobuf 解码留在主线程（避免大 ParsedManifest 跨线程序列化）
+  const decompressed = await decodeZstd(data, uncompressedSize)
   const msg = ManifestMsg.decode(decompressed)
   return ManifestMsg.toObject(msg, {
     longs: Number,

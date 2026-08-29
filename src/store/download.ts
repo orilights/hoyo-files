@@ -12,9 +12,12 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-function triggerDownload(filename: string, data: Uint8Array | string, mimeType: string) {
-  const blobPart = typeof data === 'string' ? data : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
-  const blob = new Blob([blobPart], { type: mimeType })
+function triggerDownload(filename: string, data: Blob | Uint8Array | string, mimeType: string) {
+  const blob = typeof data === 'string'
+    ? new Blob([data], { type: mimeType })
+    : data instanceof Blob
+      ? data
+      : new Blob([data as BlobPart], { type: mimeType })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -235,16 +238,11 @@ export const useDownload = defineStore('download', () => {
 
     setTaskStatus(task.id, 'merging')
 
-    const totalSize = buffers.reduce((s, b) => s + b.length, 0)
-    const merged = new Uint8Array(totalSize)
-    let offset = 0
-    for (const buf of buffers) {
-      merged.set(buf, offset)
-      offset += buf.length
-    }
+    // 用 Blob 拼接替代 Uint8Array 合并拷贝，避免大文件 O(n) 拷贝阻塞主线程
+    const blob = new Blob(buffers as BlobPart[], { type: 'application/octet-stream' })
 
     const filename = file.remoteName.slice(file.remoteName.lastIndexOf('/') + 1)
-    triggerDownload(filename, merged, 'application/octet-stream')
+    triggerDownload(filename, blob, 'application/octet-stream')
 
     setTaskStatus(task.id, 'success')
     setTaskProgress(task.id, 100)

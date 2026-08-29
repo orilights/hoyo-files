@@ -242,12 +242,9 @@ function scheduleOnePcmChunk(chunk: any, idx: number) {
   if (t + SAMPLES_PER_CHUNK / sr < audioCtx.currentTime - 0.05)
     return
   const abuf = audioCtx.createBuffer(nc, SAMPLES_PER_CHUNK, sr)
-  const i16 = new Int16Array(chunk.pcm_i16_bytes.buffer, chunk.pcm_i16_bytes.byteOffset, chunk.pcm_i16_bytes.byteLength / 2)
-  for (let ch = 0; ch < nc; ch++) {
-    const d = abuf.getChannelData(ch)
-    for (let i = 0; i < SAMPLES_PER_CHUNK; i++)
-      d[i] = i16[i * nc + ch] / 32768.0
-  }
+  // worker 已把 Int16 交织 PCM 转为 Float32 平面，这里直接 memcpy 到 AudioBuffer
+  for (let ch = 0; ch < nc; ch++)
+    abuf.copyToChannel(chunk.planes[ch], ch)
   const src = audioCtx.createBufferSource()
   src.buffer = abuf
   src.connect(gainNode ?? audioCtx.destination)
@@ -372,12 +369,9 @@ function buildAudioBuffer(chNo: number): AudioBuffer | null {
     const buf = audioCtx.createBuffer(nc, totalFrames, sr)
     let frameOffset = 0
     for (const chunk of chunks) {
-      const i16 = new Int16Array(chunk.pcm_i16_bytes.buffer, chunk.pcm_i16_bytes.byteOffset, chunk.pcm_i16_bytes.byteLength / 2)
-      for (let ch = 0; ch < nc; ch++) {
-        const channelData = buf.getChannelData(ch)
-        for (let i = 0; i < SAMPLES_PER_CHUNK; i++)
-          channelData[frameOffset + i] = i16[i * nc + ch] / 32768.0
-      }
+      // worker 已把 Int16 交织 PCM 转为 Float32 平面，这里直接 memcpy 到 AudioBuffer
+      for (let ch = 0; ch < nc; ch++)
+        buf.copyToChannel(chunk.planes[ch], ch, frameOffset)
       frameOffset += SAMPLES_PER_CHUNK
     }
     return buf
@@ -497,13 +491,15 @@ async function startStreaming() {
     if (signal.aborted)
       return
 
-    const finalResult = dec.finish()
-    for (const c of finalResult.clusters as Uint8Array[])
+    const finalResult = await dec.finish()
+    if (finalResult.init_segment)
+      sbQueue.append(finalResult.init_segment)
+    for (const c of finalResult.clusters)
       sbQueue.append(c)
-    for (const chunk of (finalResult.audio_pcm_chunks ?? []))
+    for (const chunk of finalResult.audio_pcm_chunks)
       feedAudioChunk(chunk)
 
-    dec.free()
+    await dec.free()
 
     await sbQueue.waitDrained(signal)
 
@@ -575,12 +571,12 @@ async function streamDirect(
       progressLabel.value = `已接收 ${formatBytes(received)}`
     }
 
-    const result = dec.push(value)
+    const result = await dec.push(value)
     if (result.init_segment)
-      sbQueue.append(result.init_segment as Uint8Array)
-    for (const c of result.clusters as Uint8Array[])
+      sbQueue.append(result.init_segment)
+    for (const c of result.clusters)
       sbQueue.append(c)
-    for (const chunk of (result.audio_pcm_chunks ?? []))
+    for (const chunk of result.audio_pcm_chunks)
       feedAudioChunk(chunk)
 
     await sbQueue.waitForCapacity(signal)
@@ -630,12 +626,12 @@ async function streamChunks(
   const chunks = [...foundFile.chunks].sort((a, b) => a.offset - b.offset)
 
   await downloadChunks(chunks, chunkUrlPrefix, signal, async (decompressed, i, total) => {
-    const result = dec.push(decompressed)
+    const result = await dec.push(decompressed)
     if (result.init_segment)
-      sbQueue.append(result.init_segment as Uint8Array)
-    for (const c of result.clusters as Uint8Array[])
+      sbQueue.append(result.init_segment)
+    for (const c of result.clusters)
       sbQueue.append(c)
-    for (const pcmChunk of (result.audio_pcm_chunks ?? []))
+    for (const pcmChunk of result.audio_pcm_chunks)
       feedAudioChunk(pcmChunk)
 
     progress.value = Math.min(99, Math.round(((i + 1) / total) * 99))
@@ -654,12 +650,12 @@ async function streamZip(
   const cacheKey = getZipDirCacheKey(props.gameId, props.zipVersion ?? '', zipSource.parts)
 
   await streamZipFile(zipSource.parts, props.filePath, cacheKey, signal, async (decompressed, received, total) => {
-    const result = dec.push(decompressed)
+    const result = await dec.push(decompressed)
     if (result.init_segment)
-      sbQueue.append(result.init_segment as Uint8Array)
-    for (const c of result.clusters as Uint8Array[])
+      sbQueue.append(result.init_segment)
+    for (const c of result.clusters)
       sbQueue.append(c)
-    for (const pcmChunk of (result.audio_pcm_chunks ?? []))
+    for (const pcmChunk of result.audio_pcm_chunks)
       feedAudioChunk(pcmChunk)
 
     if (total > 0) {
