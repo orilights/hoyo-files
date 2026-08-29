@@ -125,6 +125,15 @@ function collectTransferables(result: PushResult): ArrayBuffer[] {
 }
 
 const sessions = new Map<number, any>()
+/** sessionId → 创建完成 promise；push/finish 需等待对应 session 创建完成，避免首次播放时 createDecoder 尚未完成（wasm 初始化慢）导致竞态 */
+const sessionReady = new Map<number, Promise<void>>()
+
+async function waitSessionReady(sessionId: number): Promise<any> {
+  const ready = sessionReady.get(sessionId)
+  if (ready)
+    await ready
+  return sessions.get(sessionId)
+}
 
 globalThis.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data
@@ -133,13 +142,36 @@ globalThis.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     await initWasm()
 
     if (msg.type === 'createDecoder') {
-      const { UsmStreamDecoder } = await import('@/assets/usm/usm_decoder.js')
-      sessions.set(msg.sessionId, new UsmStreamDecoder(msg.keyHex))
+      // 先注册 ready promise（在 await 之前），让后续 push/finish 可以等待创建完成
+      let resolveReady!: () => void
+      const ready = new Promise<void>((resolve) => {
+        resolveReady = resolve
+      })
+      sessionReady.set(msg.sessionId, ready)
+      try {
+        const { UsmStreamDecoder } = await import('@/assets/usm/usm_decoder.js')
+        const dec = new UsmStreamDecoder(msg.keyHex)
+        // 若创建期间已被 free，则释放刚创建的 decoder，避免泄漏
+        if (!sessionReady.has(msg.sessionId)) {
+          try {
+            dec.free()
+          }
+          catch {}
+          return
+        }
+        sessions.set(msg.sessionId, dec)
+        resolveReady()
+      }
+      catch (error) {
+        sessionReady.delete(msg.sessionId)
+        resolveReady()
+        throw error
+      }
       return
     }
 
     if (msg.type === 'push') {
-      const dec = sessions.get(msg.sessionId)
+      const dec = await waitSessionReady(msg.sessionId)
       if (!dec)
         throw new Error(`USM 解码会话不存在：${msg.sessionId}`)
       const raw = dec.push(new Uint8Array(msg.data))
@@ -154,7 +186,7 @@ globalThis.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     }
 
     if (msg.type === 'finish') {
-      const dec = sessions.get(msg.sessionId)
+      const dec = await waitSessionReady(msg.sessionId)
       if (!dec)
         throw new Error(`USM 解码会话不存在：${msg.sessionId}`)
       const raw = dec.finish()
@@ -177,6 +209,7 @@ globalThis.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         catch {}
         sessions.delete(msg.sessionId)
       }
+      sessionReady.delete(msg.sessionId)
       return
     }
 
