@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { GameFileRecord, VersionEntry, ZipSource } from '@/types'
+import type { GameFileRecord, UsmSourceKind, UsmSourceOption, VersionEntry, ZipSource } from '@/types'
 import { useGameVersions } from '@/api/files'
 import { useUsmHistory } from '@/api/usm'
 import { API_BASE, GameList } from '@/constants/core'
@@ -385,6 +385,7 @@ function isFilePlayable(file: ProcessedFile): boolean {
 interface PlayerState {
   filename: string
   keyHex: string
+  sourceKind: UsmSourceKind
   directDownloadUrl: string | null
   bestChunkVersion: string | null
   zipSource: ZipSource | null
@@ -394,6 +395,60 @@ interface PlayerState {
 }
 
 const playerState = ref<PlayerState | null>(null)
+
+interface SourcePickerState {
+  mode: 'play' | 'export'
+  entry: SelectedFileVersionEntry
+}
+
+type SelectedFileVersionEntry = VersionEntry & {
+  label: string
+  bestLinkVersion: string | null
+  directDownloadUrl: string | null
+  bestChunkVersion: string | null
+  bestZipSource: ZipSource | null
+  bestZipVersion: string | null
+}
+
+const sourcePickerState = ref<SourcePickerState | null>(null)
+
+function buildSourceOptions(entry: SelectedFileVersionEntry): UsmSourceOption[] {
+  const options: UsmSourceOption[] = []
+  if (entry.directDownloadUrl) {
+    options.push({
+      kind: 'direct',
+      label: '直链',
+      version: entry.bestLinkVersion,
+      directDownloadUrl: entry.directDownloadUrl,
+      chunkVersion: null,
+      zipSource: null,
+      zipVersion: null,
+    })
+  }
+  if (entry.bestChunkVersion) {
+    options.push({
+      kind: 'chunk',
+      label: 'Chunk',
+      version: entry.bestChunkVersion,
+      directDownloadUrl: null,
+      chunkVersion: entry.bestChunkVersion,
+      zipSource: null,
+      zipVersion: null,
+    })
+  }
+  if (entry.bestZipSource) {
+    options.push({
+      kind: 'zip',
+      label: 'ZIP',
+      version: entry.bestZipVersion,
+      directDownloadUrl: null,
+      chunkVersion: null,
+      zipSource: entry.bestZipSource,
+      zipVersion: entry.bestZipVersion,
+    })
+  }
+  return options
+}
 
 function onDirectDownload(url: string, filename: string) {
   const a = document.createElement('a')
@@ -448,56 +503,63 @@ function getEntryKeyHex(filename: string): string | null {
   return findUsmKey(base)
 }
 
-function onPlay(
-  directDownloadUrl: string | null,
-  bestChunkVersion: string | null,
-  zipSource: ZipSource | null,
-  zipVersion: string | null,
-) {
+function onPlay(entry: SelectedFileVersionEntry) {
   if (!selectedFile.value)
     return
   const keyHex = getEntryKeyHex(selectedFile.value.filename)
   if (!keyHex)
     return
-  playerState.value = {
-    filename: selectedFile.value.filename,
-    keyHex,
-    directDownloadUrl,
-    bestChunkVersion,
-    zipSource,
-    zipVersion,
-    gameId: gameId.value,
-    filePath: selectedFile.value.path,
-  }
+  sourcePickerState.value = { mode: 'play', entry }
 }
 
-function onExportMkv(
-  directDownloadUrl: string | null,
-  bestChunkVersion: string | null,
-  zipSource: ZipSource | null,
-  zipVersion: string | null,
-) {
+function onExportMkv(entry: SelectedFileVersionEntry) {
   if (!selectedFile.value)
     return
   const keyHex = getEntryKeyHex(selectedFile.value.filename)
   if (!keyHex)
     return
-  const prefLang = settings.mkvExportLang
-  const gameAudioLangs = GameList.find(g => g.id === gameId.value)?.audioLangs ?? []
-  const prefIdx = prefLang === 'all' ? -1 : gameAudioLangs.indexOf(prefLang)
-  const chIndex = prefIdx >= 0 ? prefIdx : undefined
-  download.addUsmMkvExportTask({
-    filename: selectedFile.value.filename,
-    filePath: selectedFile.value.path,
-    keyHex,
-    directDownloadUrl,
-    bestChunkVersion,
-    zipSource,
-    gameId: gameId.value,
-    version: zipVersion ?? '',
-    chIndex,
-  })
-  download.openList()
+  sourcePickerState.value = { mode: 'export', entry }
+}
+
+function onSourcePick(option: UsmSourceOption) {
+  if (!selectedFile.value || !sourcePickerState.value)
+    return
+  const keyHex = getEntryKeyHex(selectedFile.value.filename)
+  if (!keyHex)
+    return
+
+  if (sourcePickerState.value.mode === 'play') {
+    playerState.value = {
+      filename: selectedFile.value.filename,
+      keyHex,
+      sourceKind: option.kind,
+      directDownloadUrl: option.directDownloadUrl,
+      bestChunkVersion: option.chunkVersion,
+      zipSource: option.zipSource,
+      zipVersion: option.zipVersion,
+      gameId: gameId.value,
+      filePath: selectedFile.value.path,
+    }
+  }
+  else {
+    const prefLang = settings.mkvExportLang
+    const gameAudioLangs = GameList.find(g => g.id === gameId.value)?.audioLangs ?? []
+    const prefIdx = prefLang === 'all' ? -1 : gameAudioLangs.indexOf(prefLang)
+    const chIndex = prefIdx >= 0 ? prefIdx : undefined
+    download.addUsmMkvExportTask({
+      filename: selectedFile.value.filename,
+      filePath: selectedFile.value.path,
+      keyHex,
+      sourceKind: option.kind,
+      directDownloadUrl: option.directDownloadUrl,
+      bestChunkVersion: option.chunkVersion,
+      zipSource: option.zipSource,
+      gameId: gameId.value,
+      version: option.zipVersion ?? '',
+      chIndex,
+    })
+    download.openList()
+  }
 }
 </script>
 
@@ -780,14 +842,14 @@ function onExportMkv(
                         <template v-if="getEntryKeyHex(selectedFile!.filename)">
                           <button
                             class="inline-flex items-center gap-1 rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-600 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-400 dark:hover:bg-green-900/40"
-                            @click="onPlay(entry.directDownloadUrl, entry.bestChunkVersion, entry.bestZipSource, entry.bestZipVersion)"
+                            @click="onPlay(entry)"
                           >
                             <LucidePlay class="h-3 w-3" />
                             在线播放
                           </button>
                           <button
                             class="inline-flex items-center gap-1 rounded-md bg-orange-50 px-2 py-1 text-xs font-medium text-orange-600 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400 dark:hover:bg-orange-900/40"
-                            @click="onExportMkv(entry.directDownloadUrl, entry.bestChunkVersion, entry.bestZipSource, entry.bestZipVersion)"
+                            @click="onExportMkv(entry)"
                           >
                             <LucideDownload class="h-3 w-3" />
                             导出 MKV
@@ -836,6 +898,7 @@ function onExportMkv(
     v-if="playerState"
     :filename="playerState.filename"
     :key-hex="playerState.keyHex"
+    :source-kind="playerState.sourceKind"
     :direct-download-url="playerState.directDownloadUrl"
     :best-chunk-version="playerState.bestChunkVersion"
     :zip-source="playerState.zipSource"
@@ -843,5 +906,15 @@ function onExportMkv(
     :game-id="playerState.gameId"
     :file-path="playerState.filePath"
     @close="playerState = null"
+  />
+
+  <UsmSourcePickerModal
+    v-if="sourcePickerState"
+    :filename="selectedFile?.filename ?? ''"
+    :file-path="selectedFile?.path ?? ''"
+    :mode="sourcePickerState.mode"
+    :sources="buildSourceOptions(sourcePickerState.entry)"
+    @select="onSourcePick"
+    @close="sourcePickerState = null"
   />
 </template>

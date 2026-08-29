@@ -313,7 +313,7 @@ export function getGameZipSource(vd: VersionData | null | undefined): ZipSource 
     return { label: '游戏包', parts: [vd.game.full] }
   }
   if (vd.game?.segments?.length) {
-    return { label: `游戏包分卷（${vd.game.segments.length}）`, parts: vd.game.segments }
+    return { label: `游戏包分卷`, parts: vd.game.segments }
   }
   return null
 }

@@ -1,4 +1,4 @@
-import type { ChunkManifest, DownloadStatus, DownloadTask, GameFileRecord, ParsedFile, ZipSource } from '@/types'
+import type { ChunkManifest, DownloadStatus, DownloadTask, GameFileRecord, ParsedFile, UsmSourceKind, ZipSource } from '@/types'
 import { defineStore } from 'pinia'
 import { API_BASE } from '@/constants/core'
 import { downloadChunks } from '@/utils/chunk'
@@ -337,6 +337,7 @@ export const useDownload = defineStore('download', () => {
     filename: string
     filePath: string
     keyHex: string
+    sourceKind: UsmSourceKind
     directDownloadUrl: string | null
     bestChunkVersion: string | null
     zipSource: ZipSource | null
@@ -351,7 +352,7 @@ export const useDownload = defineStore('download', () => {
     if (!data)
       throw new Error('任务数据丢失')
 
-    const { filename, filePath, keyHex, directDownloadUrl, bestChunkVersion, zipSource, gameId } = data
+    const { filename, filePath, keyHex, sourceKind, directDownloadUrl, bestChunkVersion, zipSource, gameId } = data
     const controller = new AbortController()
     controllers.set(task.id, controller)
     const { signal } = controller
@@ -361,7 +362,7 @@ export const useDownload = defineStore('download', () => {
 
     let usmBytes: Uint8Array
 
-    if (directDownloadUrl) {
+    if (sourceKind === 'direct' && directDownloadUrl) {
       setTaskStatus(task.id, 'downloading')
       setTaskProgress(task.id, 0)
       const res = await fetch(directDownloadUrl, { signal })
@@ -388,7 +389,7 @@ export const useDownload = defineStore('download', () => {
         off += buf.length
       }
     }
-    else if (bestChunkVersion) {
+    else if (sourceKind === 'chunk' && bestChunkVersion) {
       setTaskStatus(task.id, 'downloading')
       setTaskProgress(task.id, 0)
 
@@ -447,7 +448,7 @@ export const useDownload = defineStore('download', () => {
         off += buf.length
       }
     }
-    else if (zipSource) {
+    else if (sourceKind === 'zip' && zipSource) {
       setTaskStatus(task.id, 'downloading')
       setTaskProgress(task.id, 0)
 
@@ -480,6 +481,7 @@ export const useDownload = defineStore('download', () => {
     filename: string
     filePath: string
     keyHex: string
+    sourceKind: UsmSourceKind
     directDownloadUrl: string | null
     bestChunkVersion: string | null
     zipSource: ZipSource | null

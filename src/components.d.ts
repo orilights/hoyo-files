@@ -70,5 +70,6 @@ declare module 'vue' {
     SidePageList: typeof import('./components/layout/SidePageList.vue')['default']
     TagBadge: typeof import('./components/TagBadge.vue')['default']
     UsmPlayerModal: typeof import('./components/UsmPlayerModal.vue')['default']
+    UsmSourcePickerModal: typeof import('./components/UsmSourcePickerModal.vue')['default']
   }
 }

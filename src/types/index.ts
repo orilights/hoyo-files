@@ -171,3 +171,23 @@ export interface FileBrowserSource {
   hasChunk: boolean
   audioOptions?: FileBrowserAudioOption[]
 }
+
+/** USM 数据源类型：直链 / Chunk / ZIP */
+export type UsmSourceKind = 'direct' | 'chunk' | 'zip'
+
+/** USM 播放/导出数据源选项（弹窗展示用） */
+export interface UsmSourceOption {
+  kind: UsmSourceKind
+  /** 数据源标题，如「直链」「Chunk」「ZIP」 */
+  label: string
+  /** 数据源版本（直链/Chunk/ZIP 对应的游戏版本） */
+  version: string | null
+  /** 直链下载地址（kind === 'direct' 时有效） */
+  directDownloadUrl: string | null
+  /** Chunk 版本（kind === 'chunk' 时有效） */
+  chunkVersion: string | null
+  /** ZIP 来源（kind === 'zip' 时有效） */
+  zipSource: ZipSource | null
+  /** ZIP 版本（kind === 'zip' 时有效） */
+  zipVersion: string | null
+}

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ChunkManifest, ParsedChunk, ZipSource } from '@/types'
+import type { ChunkManifest, ParsedChunk, UsmSourceKind, ZipSource } from '@/types'
 import { API_BASE, AUDIO_LANG_LABELS, GameList } from '@/constants/core'
 import { useSettings } from '@/store/settings'
 import { downloadChunks } from '@/utils/chunk'
@@ -10,6 +10,7 @@ import { getZipDirCacheKey, streamZipFile } from '@/utils/zip'
 interface Props {
   filename: string
   keyHex: string
+  sourceKind: UsmSourceKind
   directDownloadUrl: string | null
   bestChunkVersion: string | null
   zipSource: ZipSource | null
@@ -480,13 +481,13 @@ async function startStreaming() {
   try {
     const dec = await getUsmStreamDecoder(props.keyHex)
 
-    if (props.directDownloadUrl) {
+    if (props.sourceKind === 'direct' && props.directDownloadUrl) {
       await streamDirect(props.directDownloadUrl, dec, sbQueue, signal)
     }
-    else if (props.bestChunkVersion) {
+    else if (props.sourceKind === 'chunk' && props.bestChunkVersion) {
       await streamChunks(props.bestChunkVersion, dec, sbQueue, signal)
     }
-    else if (props.zipSource) {
+    else if (props.sourceKind === 'zip' && props.zipSource) {
       await streamZip(props.zipSource, dec, sbQueue, signal)
     }
     else {
@@ -747,8 +748,8 @@ onUnmounted(() => {
             v-if="phase === 'error'"
             class="flex flex-col items-center gap-2 py-12 text-red-500"
           >
-            <LucideAlertCircle class="h-8 w-8" />
-            <p class="text-sm">
+            <LucideAlertCircle class="h-8 w-8 shrink-0" />
+            <p class="max-h-48 w-full max-w-full overflow-y-auto whitespace-pre-wrap break-all px-2 text-center text-sm">
               {{ errorMsg }}
             </p>
             <button
