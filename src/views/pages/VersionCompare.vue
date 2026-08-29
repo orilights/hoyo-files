@@ -4,6 +4,7 @@ import { fetchChunkInfo, fetchFileList, useGameVersions } from '@/api/files'
 import { AUDIO_LANG_FILES, AUDIO_LANG_LABELS, GameList } from '@/constants/core'
 import { useDownload } from '@/store/download'
 import { sortVersions } from '@/utils/semver'
+import { annotateZipSource, getGameZipSource, getVoiceZipSource } from '@/utils/zip'
 
 const route = useRoute()
 const gameId = computed(() => route.params.gameId as string)
@@ -116,12 +117,15 @@ function hasDiffAudioFileList(version: string, lang: string) {
 function mergeFiles(
   mainFiles: GameFileRecord[],
   audioLists: Record<string, GameFileRecord[]>,
+  version: string,
 ) {
-  const merged = [...mainFiles]
+  const vd = versionsQuery.data.value?.[version] ?? null
+  const gameSource = getGameZipSource(vd)
+  const merged = annotateZipSource(mainFiles, gameSource)
   for (const lang of activeAudioLangs.value) {
     const list = audioLists[lang]
     if (list)
-      merged.push(...list)
+      merged.push(...annotateZipSource(list, getVoiceZipSource(vd, lang)))
   }
   return merged
 }
@@ -271,13 +275,18 @@ async function onDownloadChunkFile(payload: { file: GameFileRecord, version: str
   download.openList()
 }
 
+function onExtractZipFile(payload: { file: GameFileRecord, version: string }) {
+  download.addZipFileTask(payload.file, gameId.value, payload.version)
+  download.openList()
+}
+
 function buildDiffSource(version: string | null): FileBrowserSource | null {
   if (!version)
     return null
   const versionInfo = versionsQuery.data.value?.[version] ?? null
   return {
     version,
-    files: mergeFiles(diffVersionMainFileLists.value[version] ?? [], diffAudioFileLists.value[version] ?? {}),
+    files: mergeFiles(diffVersionMainFileLists.value[version] ?? [], diffAudioFileLists.value[version] ?? {}, version),
     isLoading: loadingDiffVersions.value.has(version),
     error: diffVersionErrors.value[version] ?? null,
     decompressedPath: versionInfo?.decompressed_path ?? null,
@@ -378,6 +387,7 @@ function onBrowserLoad() {
         @load="onBrowserLoad"
         @toggle-audio="toggleAudioLang"
         @download-chunk-file="onDownloadChunkFile"
+        @extract-zip-file="onExtractZipFile"
       />
     </template>
 

@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import type { ChunkManifest, ParsedChunk } from '@/types'
+import type { ChunkManifest, ParsedChunk, ZipSource } from '@/types'
 import { API_BASE, AUDIO_LANG_LABELS, GameList } from '@/constants/core'
 import { useSettings } from '@/store/settings'
 import { downloadChunks } from '@/utils/chunk'
 import { fetchAndParseManifest } from '@/utils/manifest'
 import { getUsmStreamDecoder } from '@/utils/usm'
+import { getZipDirCacheKey, streamZipFile } from '@/utils/zip'
 
 interface Props {
   filename: string
   keyHex: string
   directDownloadUrl: string | null
   bestChunkVersion: string | null
+  zipSource: ZipSource | null
+  zipVersion: string | null
   gameId: string
   filePath: string
 }
@@ -295,6 +298,8 @@ function feedAudioChunk(chunk: any) {
 }
 
 function onStreamVideoPlaying() {
+  // 视频开始播放即隐藏 loading（后台可能仍在继续解压/缓冲）
+  phase.value = 'playing'
   if (!streamAudioActive || streamAudioReady || !audioCtx || !videoRef.value)
     return
   streamAudioReady = true
@@ -481,6 +486,9 @@ async function startStreaming() {
     else if (props.bestChunkVersion) {
       await streamChunks(props.bestChunkVersion, dec, sbQueue, signal)
     }
+    else if (props.zipSource) {
+      await streamZip(props.zipSource, dec, sbQueue, signal)
+    }
     else {
       throw new Error('无可用资源')
     }
@@ -631,6 +639,35 @@ async function streamChunks(
 
     progress.value = Math.min(99, Math.round(((i + 1) / total) * 99))
     progressLabel.value = `Chunk ${i + 1} / ${total}`
+
+    await sbQueue.waitForCapacity(signal)
+  })
+}
+
+async function streamZip(
+  zipSource: ZipSource,
+  dec: Awaited<ReturnType<typeof getUsmStreamDecoder>>,
+  sbQueue: ReturnType<typeof makeSourceBufferQueue>,
+  signal: AbortSignal,
+) {
+  const cacheKey = getZipDirCacheKey(props.gameId, props.zipVersion ?? '', zipSource.parts)
+
+  await streamZipFile(zipSource.parts, props.filePath, cacheKey, signal, async (decompressed, received, total) => {
+    const result = dec.push(decompressed)
+    if (result.init_segment)
+      sbQueue.append(result.init_segment as Uint8Array)
+    for (const c of result.clusters as Uint8Array[])
+      sbQueue.append(c)
+    for (const pcmChunk of (result.audio_pcm_chunks ?? []))
+      feedAudioChunk(pcmChunk)
+
+    if (total > 0) {
+      progress.value = Math.min(99, Math.round((received / total) * 99))
+      progressLabel.value = `ZIP 解压中 ${formatBytes(received)} / ${formatBytes(total)}`
+    }
+    else {
+      progressLabel.value = `ZIP 解压中 ${formatBytes(received)}`
+    }
 
     await sbQueue.waitForCapacity(signal)
   })

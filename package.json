@@ -13,6 +13,7 @@
   "dependencies": {
     "@lucide/vue": "^1.16.0",
     "@tanstack/vue-query": "^5.100.10",
+    "@zip.js/zip.js": "^2.8.61",
     "idb": "^8.0.3",
     "pinia": "^3.0.4",
     "pinia-plugin-persistedstate": "^4.7.1",

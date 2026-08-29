@@ -42,6 +42,7 @@ const emit = defineEmits<{
   load: []
   toggleAudio: [lang: string]
   downloadChunkFile: [payload: { file: GameFileRecord, version: string }]
+  extractZipFile: [payload: { file: GameFileRecord, version: string }]
 }>()
 
 const currentPath = ref<string[]>([])
@@ -679,7 +680,9 @@ const diffFileInfoPanels = computed<FileInfoPanelItem[]>(() => {
               :download-url="fileDownloadUrlA"
               :has-chunk="sourceA.hasChunk"
               :version="sourceA.version"
+              :zip-source="selectedSourceA.zipSource ?? null"
               @download-chunk-file="emit('downloadChunkFile', $event)"
+              @extract-zip-file="emit('extractZipFile', $event)"
             />
           </template>
 
@@ -692,8 +695,10 @@ const diffFileInfoPanels = computed<FileInfoPanelItem[]>(() => {
               :download-url="panel.downloadUrl"
               :has-chunk="panel.hasChunk"
               :version="panel.version"
+              :zip-source="panel.file.zipSource ?? null"
               boxed
               @download-chunk-file="emit('downloadChunkFile', $event)"
+              @extract-zip-file="emit('extractZipFile', $event)"
             />
           </template>
         </div>

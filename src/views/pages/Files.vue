@@ -9,6 +9,7 @@ import { AUDIO_LANG_FILES, AUDIO_LANG_LABELS, GameList } from '@/constants/core'
 import { useDownload } from '@/store/download'
 import { formatBytes } from '@/utils/file'
 import { compareSemver, sortVersions } from '@/utils/semver'
+import { annotateZipSource, getGameZipSource, getVoiceZipSource } from '@/utils/zip'
 
 const route = useRoute()
 const gameId = computed(() => route.params.gameId as string)
@@ -223,11 +224,13 @@ const supportedAudioLangs = computed(() => {
 })
 
 function mergeFiles(mainFiles: GameFileRecord[], audioLists: Map<string, GameFileRecord[]>) {
-  const merged = [...mainFiles]
+  const vd = versionData.value
+  const gameSource = getGameZipSource(vd)
+  const merged = annotateZipSource(mainFiles, gameSource)
   for (const lang of activeAudioLangs.value) {
     const list = audioLists.get(lang)
     if (list)
-      merged.push(...list)
+      merged.push(...annotateZipSource(list, getVoiceZipSource(vd, lang)))
   }
   return merged
 }
@@ -355,6 +358,13 @@ function onDownloadChunkFile(payload: { file: GameFileRecord, version: string })
   if (!selectedVersion.value || payload.version !== selectedVersion.value || !chunkQuery.data.value?.manifests)
     return
   download.addChunkFileTask(payload.file, chunkQuery.data.value.manifests, gameId.value, selectedVersion.value)
+  download.openList()
+}
+
+function onExtractZipFile(payload: { file: GameFileRecord, version: string }) {
+  if (!selectedVersion.value || payload.version !== selectedVersion.value)
+    return
+  download.addZipFileTask(payload.file, gameId.value, selectedVersion.value)
   download.openList()
 }
 
@@ -520,6 +530,7 @@ function onBrowserLoad() {
         @load="onBrowserLoad"
         @toggle-audio="toggleAudioLang"
         @download-chunk-file="onDownloadChunkFile"
+        @extract-zip-file="onExtractZipFile"
       />
 
       <div

@@ -1,9 +1,10 @@
-import type { ChunkManifest, DownloadStatus, DownloadTask, GameFileRecord, ParsedFile } from '@/types'
+import type { ChunkManifest, DownloadStatus, DownloadTask, GameFileRecord, ParsedFile, ZipSource } from '@/types'
 import { defineStore } from 'pinia'
 import { API_BASE } from '@/constants/core'
 import { downloadChunks } from '@/utils/chunk'
 import { fetchAndParseManifest } from '@/utils/manifest'
 import { decodeUsmToMkv } from '@/utils/usm'
+import { extractZipFile, getZipDirCacheKey } from '@/utils/zip'
 
 const MAX_CONCURRENT = 3
 
@@ -101,6 +102,9 @@ export const useDownload = defineStore('download', () => {
       else if (task.type === 'usm-mkv-export') {
         await runUsmMkvExportTask(task)
       }
+      else if (task.type === 'zip-file') {
+        await runZipFileTask(task)
+      }
       else {
         await runChunkFileTask(task)
       }
@@ -125,6 +129,12 @@ export const useDownload = defineStore('download', () => {
   const chunkTaskData = new Map<string, {
     file: GameFileRecord
     manifests: ChunkManifest[]
+    gameId: string
+    version: string
+  }>()
+
+  const zipTaskData = new Map<string, {
+    file: GameFileRecord
     gameId: string
     version: string
   }>()
@@ -270,13 +280,68 @@ export const useDownload = defineStore('download', () => {
     processQueue()
   }
 
+  async function runZipFileTask(task: DownloadTask) {
+    const data = zipTaskData.get(task.id)
+    if (!data)
+      throw new Error('任务数据丢失')
+
+    const { file, gameId, version } = data
+    const zipSource = file.zipSource
+    if (!zipSource)
+      throw new Error('无可用 ZIP 来源')
+
+    const controller = new AbortController()
+    controllers.set(task.id, controller)
+    const { signal } = controller
+
+    if (tasks.value.find(t => t.id === task.id)?.status === 'cancelled')
+      return
+
+    const cacheKey = getZipDirCacheKey(gameId, version, zipSource.parts)
+    const filename = file.remoteName.slice(file.remoteName.lastIndexOf('/') + 1)
+
+    setTaskStatus(task.id, 'downloading')
+    setTaskProgress(task.id, 0)
+
+    const dataBytes = await extractZipFile(zipSource.parts, file.remoteName, cacheKey, signal, (received, total) => {
+      if (total > 0)
+        setTaskProgress(task.id, Math.round((received / total) * 100))
+    })
+
+    if (tasks.value.find(t => t.id === task.id)?.status === 'cancelled')
+      return
+
+    triggerDownload(filename, dataBytes, 'application/octet-stream')
+
+    setTaskStatus(task.id, 'success')
+    setTaskProgress(task.id, 100)
+    zipTaskData.delete(task.id)
+  }
+
+  function addZipFileTask(file: GameFileRecord, gameId: string, version: string) {
+    const id = makeId()
+    const filename = file.remoteName.slice(file.remoteName.lastIndexOf('/') + 1)
+    const task: DownloadTask = {
+      id,
+      type: 'zip-file',
+      status: 'pending',
+      name: filename,
+      progress: 0,
+    }
+    zipTaskData.set(id, { file, gameId, version })
+    tasks.value.unshift(task)
+    processQueue()
+  }
+
   const mkvExportTaskData = new Map<string, {
     filename: string
     filePath: string
     keyHex: string
     directDownloadUrl: string | null
     bestChunkVersion: string | null
+    zipSource: ZipSource | null
     gameId: string
+    version: string
     chIndex?: number
     manifests?: ChunkManifest[]
   }>()
@@ -286,7 +351,7 @@ export const useDownload = defineStore('download', () => {
     if (!data)
       throw new Error('任务数据丢失')
 
-    const { filename, filePath, keyHex, directDownloadUrl, bestChunkVersion, gameId } = data
+    const { filename, filePath, keyHex, directDownloadUrl, bestChunkVersion, zipSource, gameId } = data
     const controller = new AbortController()
     controllers.set(task.id, controller)
     const { signal } = controller
@@ -382,6 +447,16 @@ export const useDownload = defineStore('download', () => {
         off += buf.length
       }
     }
+    else if (zipSource) {
+      setTaskStatus(task.id, 'downloading')
+      setTaskProgress(task.id, 0)
+
+      const cacheKey = getZipDirCacheKey(gameId, data.version ?? '', zipSource.parts)
+      usmBytes = await extractZipFile(zipSource.parts, filePath, cacheKey, signal, (received, total) => {
+        if (total > 0)
+          setTaskProgress(task.id, Math.round((received / total) * 80))
+      })
+    }
     else {
       throw new Error('无可用下载源')
     }
@@ -407,7 +482,9 @@ export const useDownload = defineStore('download', () => {
     keyHex: string
     directDownloadUrl: string | null
     bestChunkVersion: string | null
+    zipSource: ZipSource | null
     gameId: string
+    version: string
     chIndex?: number
   }) {
     const id = makeId()
@@ -436,6 +513,7 @@ export const useDownload = defineStore('download', () => {
     cancelTask,
     addManifestJsonTask,
     addChunkFileTask,
+    addZipFileTask,
     addUsmMkvExportTask,
   }
 })

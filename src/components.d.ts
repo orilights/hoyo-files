@@ -17,6 +17,7 @@ declare module 'vue' {
     FileInfoPanel: typeof import('./components/FileInfoPanel.vue')['default']
     HelpModal: typeof import('./components/HelpModal.vue')['default']
     LucideAlertCircle: typeof import('@lucide/vue')['AlertCircle']
+    LucideArchive: typeof import('@lucide/vue')['Archive']
     LucideArrowLeftRight: typeof import('@lucide/vue')['ArrowLeftRight']
     LucideArrowRight: typeof import('@lucide/vue')['ArrowRight']
     LucideBoxes: typeof import('@lucide/vue')['Boxes']

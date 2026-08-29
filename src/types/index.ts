@@ -20,6 +20,15 @@ export interface PkgFile {
   size: number
 }
 
+/**
+ * ZIP 提取来源：一个游戏包（`game.full` 单文件）或一组分卷（`game.segments`）。
+ * `parts` 按顺序拼接成虚拟连续文件，`label` 用于 UI 展示。
+ */
+export interface ZipSource {
+  label: string
+  parts: PkgFile[]
+}
+
 export interface VoiceMap {
   'zh-cn'?: PkgFile
   'en-us'?: PkgFile
@@ -91,6 +100,8 @@ export interface GameFileRecord {
   md5: string
   hash?: string
   fileSize: number
+  /** 该文件可从中提取的 ZIP 来源（游戏包或语音包），由页面在合并文件列表时标注 */
+  zipSource?: ZipSource
 }
 
 export interface VersionEntry {
@@ -137,7 +148,7 @@ export type DownloadStatus
 
 export interface DownloadTask {
   id: string
-  type: 'manifest-json' | 'chunk-file' | 'usm-mkv-export'
+  type: 'manifest-json' | 'chunk-file' | 'usm-mkv-export' | 'zip-file'
   status: DownloadStatus
   name: string
   progress: number

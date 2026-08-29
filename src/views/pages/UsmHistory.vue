@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { GameFileRecord, VersionEntry } from '@/types'
+import type { GameFileRecord, VersionEntry, ZipSource } from '@/types'
 import { useGameVersions } from '@/api/files'
 import { useUsmHistory } from '@/api/usm'
 import { API_BASE, GameList } from '@/constants/core'
@@ -7,6 +7,7 @@ import { useDownload } from '@/store/download'
 import { useSettings } from '@/store/settings'
 import { formatBytes, highlightText } from '@/utils/file'
 import { compareSemver, sortVersions } from '@/utils/semver'
+import { getGameZipSource } from '@/utils/zip'
 
 const route = useRoute()
 const gameId = computed(() => route.params.gameId as string)
@@ -310,6 +311,8 @@ const selectedFileVersions = computed(() => {
     let directDownloadUrl: string | null = null
     let bestLinkVersion: string | null = null
     let bestChunkVersion: string | null = null
+    let bestZipSource: ZipSource | null = null
+    let bestZipVersion: string | null = null
 
     if (entry.state === 'AVAILABLE') {
       const candidates = getEntryCandidates(fileVersions, entry.version, availableVersions, allGameVersions)
@@ -321,12 +324,19 @@ const selectedFileVersions = computed(() => {
         }
         if (!bestChunkVersion && vData[gv]?.chunk)
           bestChunkVersion = gv
-        if (directDownloadUrl && bestChunkVersion)
+        if (!bestZipSource) {
+          const src = getGameZipSource(vData[gv])
+          if (src) {
+            bestZipSource = src
+            bestZipVersion = gv
+          }
+        }
+        if (directDownloadUrl && bestChunkVersion && bestZipSource)
           break
       }
     }
 
-    return { ...entry, label, bestLinkVersion, directDownloadUrl, bestChunkVersion }
+    return { ...entry, label, bestLinkVersion, directDownloadUrl, bestChunkVersion, bestZipSource, bestZipVersion }
   })
 })
 
@@ -358,7 +368,7 @@ const playableSet = computed<Set<string>>(() => {
       if (entry.state !== 'AVAILABLE')
         return false
       const candidates = getEntryCandidates(file.versions, entry.version, availableVersions, allGameVersions)
-      return candidates.some(gv => vData[gv]?.decompressed_path || vData[gv]?.chunk)
+      return candidates.some(gv => vData[gv]?.decompressed_path || vData[gv]?.chunk || getGameZipSource(vData[gv]))
     })
 
     if (hasResource)
@@ -377,6 +387,8 @@ interface PlayerState {
   keyHex: string
   directDownloadUrl: string | null
   bestChunkVersion: string | null
+  zipSource: ZipSource | null
+  zipVersion: string | null
   gameId: string
   filePath: string
 }
@@ -417,6 +429,20 @@ async function onChunkDownload(chunkVersion: string, entryVersion: string) {
   }
 }
 
+function onZipDownload(zipSource: ZipSource, zipVersion: string | null, entryVersion: string) {
+  if (!selectedFile.value)
+    return
+  const entry = selectedFile.value.versions.find(v => v.version === entryVersion)
+  const file: GameFileRecord = {
+    remoteName: selectedFile.value.path,
+    md5: entry?.md5 ?? '',
+    fileSize: entry?.size ?? 0,
+    zipSource,
+  }
+  download.addZipFileTask(file, gameId.value, zipVersion ?? '')
+  download.openList()
+}
+
 function getEntryKeyHex(filename: string): string | null {
   const base = filename.replace(/\.usm$/i, '')
   return findUsmKey(base)
@@ -425,6 +451,8 @@ function getEntryKeyHex(filename: string): string | null {
 function onPlay(
   directDownloadUrl: string | null,
   bestChunkVersion: string | null,
+  zipSource: ZipSource | null,
+  zipVersion: string | null,
 ) {
   if (!selectedFile.value)
     return
@@ -436,6 +464,8 @@ function onPlay(
     keyHex,
     directDownloadUrl,
     bestChunkVersion,
+    zipSource,
+    zipVersion,
     gameId: gameId.value,
     filePath: selectedFile.value.path,
   }
@@ -444,6 +474,8 @@ function onPlay(
 function onExportMkv(
   directDownloadUrl: string | null,
   bestChunkVersion: string | null,
+  zipSource: ZipSource | null,
+  zipVersion: string | null,
 ) {
   if (!selectedFile.value)
     return
@@ -460,7 +492,9 @@ function onExportMkv(
     keyHex,
     directDownloadUrl,
     bestChunkVersion,
+    zipSource,
     gameId: gameId.value,
+    version: zipVersion ?? '',
     chIndex,
   })
   download.openList()
@@ -737,46 +771,56 @@ function onExportMkv(
                     </div>
                     <div class="mt-2 flex flex-wrap gap-1.5">
                       <span
-                        v-if="!entry.directDownloadUrl && !entry.bestChunkVersion"
+                        v-if="!entry.directDownloadUrl && !entry.bestChunkVersion && !entry.bestZipSource"
                         class="text-xs text-gray-400 dark:text-gray-500"
                       >
                         无可用资源
                       </span>
                       <template v-else>
-                        <button
-                          v-if="entry.directDownloadUrl"
-                          class="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40"
-                          @click="onDirectDownload(entry.directDownloadUrl, selectedFile!.filename)"
-                        >
-                          <LucideLink class="h-3 w-3" />
-                          直链下载
-                        </button>
-                        <button
-                          v-if="entry.bestChunkVersion"
-                          class="inline-flex items-center gap-1 rounded-md bg-purple-50 px-2 py-1 text-xs font-medium text-purple-600 hover:bg-purple-100 disabled:opacity-50 dark:bg-purple-900/20 dark:text-purple-400 dark:hover:bg-purple-900/40"
-                          :disabled="chunkLoadingVersion === entry.bestChunkVersion"
-                          @click="onChunkDownload(entry.bestChunkVersion, entry.version)"
-                        >
-                          <LucideBoxes class="h-3 w-3" />
-                          {{ chunkLoadingVersion === entry.bestChunkVersion ? '加载中...' : '通过 Chunk 下载' }}
-                        </button>
                         <template v-if="getEntryKeyHex(selectedFile!.filename)">
                           <button
                             class="inline-flex items-center gap-1 rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-600 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-400 dark:hover:bg-green-900/40"
-                            @click="onPlay(entry.directDownloadUrl, entry.bestChunkVersion)"
+                            @click="onPlay(entry.directDownloadUrl, entry.bestChunkVersion, entry.bestZipSource, entry.bestZipVersion)"
                           >
                             <LucidePlay class="h-3 w-3" />
                             在线播放
                           </button>
                           <button
                             class="inline-flex items-center gap-1 rounded-md bg-orange-50 px-2 py-1 text-xs font-medium text-orange-600 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400 dark:hover:bg-orange-900/40"
-                            @click="onExportMkv(entry.directDownloadUrl, entry.bestChunkVersion)"
+                            @click="onExportMkv(entry.directDownloadUrl, entry.bestChunkVersion, entry.bestZipSource, entry.bestZipVersion)"
                           >
                             <LucideDownload class="h-3 w-3" />
                             导出 MKV
                           </button>
                         </template>
                       </template>
+                      <button
+                        v-if="entry.directDownloadUrl"
+                        class="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40"
+                        @click="onDirectDownload(entry.directDownloadUrl, selectedFile!.filename)"
+                      >
+                        <LucideLink class="h-3 w-3" />
+                        直链下载
+                      </button>
+
+                      <button
+                        v-if="entry.bestChunkVersion"
+                        class="inline-flex items-center gap-1 rounded-md bg-purple-50 px-2 py-1 text-xs font-medium text-purple-600 hover:bg-purple-100 disabled:opacity-50 dark:bg-purple-900/20 dark:text-purple-400 dark:hover:bg-purple-900/40"
+                        :disabled="chunkLoadingVersion === entry.bestChunkVersion"
+                        @click="onChunkDownload(entry.bestChunkVersion, entry.version)"
+                      >
+                        <LucideBoxes class="h-3 w-3" />
+                        {{ chunkLoadingVersion === entry.bestChunkVersion ? '加载中...' : '通过 Chunk 下载' }}
+                      </button>
+                      <button
+                        v-if="entry.bestZipSource"
+                        class="inline-flex items-center gap-1 rounded-md bg-cyan-50 px-2 py-1 text-xs font-medium text-cyan-600 hover:bg-cyan-100 dark:bg-cyan-900/20 dark:text-cyan-400 dark:hover:bg-cyan-900/40"
+                        :title="entry.bestZipSource.label"
+                        @click="onZipDownload(entry.bestZipSource, entry.bestZipVersion, entry.version)"
+                      >
+                        <LucideArchive class="h-3 w-3" />
+                        从 ZIP 中提取
+                      </button>
                     </div>
                   </template>
                 </div>
@@ -794,6 +838,8 @@ function onExportMkv(
     :key-hex="playerState.keyHex"
     :direct-download-url="playerState.directDownloadUrl"
     :best-chunk-version="playerState.bestChunkVersion"
+    :zip-source="playerState.zipSource"
+    :zip-version="playerState.zipVersion"
     :game-id="playerState.gameId"
     :file-path="playerState.filePath"
     @close="playerState = null"

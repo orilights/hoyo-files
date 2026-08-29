@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { GameFileRecord } from '@/types'
+import type { GameFileRecord, ZipSource } from '@/types'
 import { formatBytes } from '@/utils/file'
 
 interface Props {
@@ -8,6 +8,7 @@ interface Props {
   downloadUrl?: string | null
   hasChunk?: boolean
   version?: string | null
+  zipSource?: ZipSource | null
   boxed?: boolean
 }
 
@@ -16,11 +17,13 @@ withDefaults(defineProps<Props>(), {
   downloadUrl: null,
   hasChunk: false,
   version: null,
+  zipSource: null,
   boxed: false,
 })
 
 const emit = defineEmits<{
   downloadChunkFile: [payload: { file: GameFileRecord, version: string }]
+  extractZipFile: [payload: { file: GameFileRecord, version: string }]
 }>()
 
 function getFilename(path: string) {
@@ -64,7 +67,7 @@ function getFilename(path: string) {
       </p>
     </div>
 
-    <div v-if="downloadUrl || (hasChunk && version)" class="flex flex-col gap-2">
+    <div v-if="downloadUrl || (hasChunk && version) || (zipSource && version)" class="flex flex-col gap-2">
       <a
         v-if="downloadUrl"
         :href="downloadUrl"
@@ -83,6 +86,15 @@ function getFilename(path: string) {
       >
         <LucideBoxes class="h-3.5 w-3.5" />
         通过 Chunk 下载
+      </button>
+      <button
+        v-if="zipSource && version"
+        class="flex items-center justify-center gap-1.5 rounded-md bg-cyan-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-cyan-600 focus:outline-none dark:bg-cyan-600 dark:hover:bg-cyan-700"
+        :title="zipSource.label"
+        @click="emit('extractZipFile', { file, version })"
+      >
+        <LucideArchive class="h-3.5 w-3.5" />
+        从 ZIP 中提取
       </button>
     </div>
   </div>
