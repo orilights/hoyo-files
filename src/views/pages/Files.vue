@@ -5,7 +5,7 @@ import {
   useChunkInfo,
   useGameVersions,
 } from '@/api/files'
-import { AUDIO_LANG_FILES, AUDIO_LANG_LABELS, GameList } from '@/constants/core'
+import { AUDIO_LANG_FILES, AUDIO_LANG_LABELS, CHUNK_ONLY_THRESHOLDS, GameList } from '@/constants/core'
 import { useDownload } from '@/store/download'
 import { formatBytes } from '@/utils/file'
 import { compareSemver, sortVersions } from '@/utils/semver'
@@ -327,11 +327,6 @@ const chunkTotalStats = computed(() => {
     { file_count: 0, chunk_count: 0, compressed_size: 0, uncompressed_size: 0, manifest_count: 0 },
   )
 })
-
-const CHUNK_ONLY_THRESHOLDS: Record<string, string> = {
-  hk4e: '5.6.0',
-  bh3: '8.5.0',
-}
 
 const gameName = computed(() => {
   const game = GameList.find(g => g.id === gameId.value)

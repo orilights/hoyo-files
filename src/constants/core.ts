@@ -64,4 +64,10 @@ export const AUDIO_LANG_LABELS: Record<string, string> = {
   'ko-kr': '韩语',
 }
 
+export const CHUNK_ONLY_THRESHOLDS: Record<string, string> = {
+  hk4e: '5.6.0',
+  bh3: '8.5.0',
+  hkrpg: '4.5.0',
+}
+
 export const API_BASE = import.meta.env.VITE_API_BASE || '.'
