@@ -74,6 +74,11 @@ let streamAudioActive = false
 let streamAudioReady = false
 let audioTimeBase = 0
 let pendingPcmChunks: any[] = []
+let audioTimestampCorrectionCount = 0
+let maxAudioTimestampCorrectionMs = 0
+let audioLateTrimCount = 0
+let audioLateDropCount = 0
+let maxAudioLateMs = 0
 
 let videoAudioSyncCleanup: (() => void) | null = null
 
@@ -143,7 +148,6 @@ function log(msg: string) {
 const isScanning = ref(false)
 const scanProgressText = ref('')
 
-const SAMPLES_PER_CHUNK = 1024
 const mimeType = 'video/webm; codecs="vp9"'
 const MAX_SOURCE_BUFFER_QUEUE_BYTES = 16 * 1024 * 1024
 const MAX_BUFFER_AHEAD_SECONDS = 18
@@ -310,22 +314,43 @@ function makeSourceBufferQueue(sb: SourceBuffer, video: HTMLVideoElement) {
   }
 }
 
+function audioChunkStartMs(chunk: any): number {
+  return chunk.playback_timestamp_ms ?? chunk.timestamp_ms
+}
+
+function audioChunkDurationMs(chunk: any): number {
+  return (chunk.planes[0]?.length ?? 0) * 1000 / chunk.sample_rate
+}
+
 function scheduleOnePcmChunk(chunk: any) {
   if (!audioCtx)
     return
   const sr: number = chunk.sample_rate
   const nc: number = chunk.channel_count
-  const t = audioTimeBase + chunk.timestamp_ms / 1000
-  if (t + SAMPLES_PER_CHUNK / sr < audioCtx.currentTime - 0.05)
+  const frameCount = chunk.planes[0]?.length ?? 0
+  if (frameCount === 0)
     return
-  const abuf = audioCtx.createBuffer(nc, SAMPLES_PER_CHUNK, sr)
+  const t = audioTimeBase + audioChunkStartMs(chunk) / 1000
+  const duration = frameCount / sr
+  const lateBy = Math.max(0, audioCtx.currentTime - t)
+  if (lateBy >= duration) {
+    audioLateDropCount++
+    maxAudioLateMs = Math.max(maxAudioLateMs, lateBy * 1000)
+    return
+  }
+  if (lateBy > 0) {
+    audioLateTrimCount++
+    maxAudioLateMs = Math.max(maxAudioLateMs, lateBy * 1000)
+  }
+  const abuf = audioCtx.createBuffer(nc, frameCount, sr)
   // worker 已把 Int16 交织 PCM 转为 Float32 平面，这里直接 memcpy 到 AudioBuffer
   for (let ch = 0; ch < nc; ch++)
     abuf.copyToChannel(chunk.planes[ch], ch)
   const src = audioCtx.createBufferSource()
   src.buffer = abuf
   src.connect(gainNode ?? audioCtx.destination)
-  src.start(Math.max(t, audioCtx.currentTime))
+  // 块迟到时从正确的样本偏移开始，避免完整块延后播放并与下一块重叠。
+  src.start(Math.max(t, audioCtx.currentTime), lateBy)
   streamAudioNodes.push(src)
   src.onended = () => {
     const index = streamAudioNodes.indexOf(src)
@@ -354,8 +379,7 @@ function rescheduleStreamAudio() {
   const vt = videoRef.value.currentTime
   const chunks = audioPcmByChannel.get(currentChannel.value) ?? []
   for (const chunk of chunks) {
-    const sr: number = chunk.sample_rate
-    if (chunk.timestamp_ms / 1000 + SAMPLES_PER_CHUNK / sr >= vt - 0.05)
+    if ((audioChunkStartMs(chunk) + audioChunkDurationMs(chunk)) / 1000 >= vt - 0.05)
       scheduleOnePcmChunk(chunk)
   }
 }
@@ -368,9 +392,29 @@ function feedAudioChunk(chunk: any) {
       audioChannelList.value.push(chNo)
   }
   const chChunks = audioPcmByChannel.get(chNo)!
+  const previous = chChunks[chChunks.length - 1]
+  if (previous) {
+    const expectedMs = audioChunkStartMs(previous) + audioChunkDurationMs(previous)
+    const correctionMs = Math.abs(chunk.timestamp_ms - expectedMs)
+    const discontinuityThresholdMs = Math.max(5, audioChunkDurationMs(chunk) / 2)
+    if (correctionMs <= discontinuityThresholdMs) {
+      chunk.playback_timestamp_ms = expectedMs
+      if (correctionMs > 0.001) {
+        audioTimestampCorrectionCount++
+        maxAudioTimestampCorrectionMs = Math.max(maxAudioTimestampCorrectionMs, correctionMs)
+      }
+    }
+    else {
+      chunk.playback_timestamp_ms = chunk.timestamp_ms
+      log(`[audio] 通道 ${chNo} 时间轴跳变 ${correctionMs.toFixed(3)}ms，重新锚定`)
+    }
+  }
+  else {
+    chunk.playback_timestamp_ms = chunk.timestamp_ms
+  }
   chChunks.push(chunk)
   const cutoffMs = (videoRef.value?.currentTime ?? 0) * 1000 - 120000
-  while (chChunks.length > 0 && chChunks[0].timestamp_ms < cutoffMs)
+  while (chChunks.length > 0 && audioChunkStartMs(chChunks[0]) < cutoffMs)
     chChunks.shift()
   if (chNo !== currentChannel.value)
     return
@@ -618,8 +662,8 @@ function isAudioCovered(ms: number): boolean {
     return false
   const first = chunks[0]
   const last = chunks[chunks.length - 1]
-  const endMs = last.timestamp_ms + SAMPLES_PER_CHUNK * 1000 / last.sample_rate
-  return ms >= first.timestamp_ms - 50 && ms <= endMs + 50
+  const endMs = audioChunkStartMs(last) + audioChunkDurationMs(last)
+  return ms >= audioChunkStartMs(first) - 50 && ms <= endMs + 50
 }
 
 function waitForBuffered(ms: number, timeoutMs = 6000, signal?: AbortSignal): Promise<boolean> {
@@ -955,6 +999,11 @@ async function startStreaming() {
   audioPcmByChannel.clear()
   streamAudioNodes = []
   pendingPcmChunks = []
+  audioTimestampCorrectionCount = 0
+  maxAudioTimestampCorrectionMs = 0
+  audioLateTrimCount = 0
+  audioLateDropCount = 0
+  maxAudioLateMs = 0
   audioChannelList.value = []
   currentChannel.value = 0
   audioStatusText.value = ''
@@ -1144,10 +1193,12 @@ function collectDebugInfo(): string {
   kv('音频通道', audioChannelList.value.join(',') || '-')
   kv('当前通道', currentChannel.value)
   kv('音频状态', audioStatusText.value || '-')
+  kv('时间戳连续化', `${audioTimestampCorrectionCount} 次 · 最大 ${maxAudioTimestampCorrectionMs.toFixed(3)}ms`)
+  kv('迟到块裁剪/丢弃', `${audioLateTrimCount}/${audioLateDropCount} · 最大 ${maxAudioLateMs.toFixed(3)}ms`)
   for (const [ch, chunks] of audioPcmByChannel) {
-    const first = chunks[0]?.timestamp_ms
+    const first = chunks[0] ? audioChunkStartMs(chunks[0]) : null
     const last = chunks[chunks.length - 1]
-    const end = last ? last.timestamp_ms + SAMPLES_PER_CHUNK * 1000 / last.sample_rate : null
+    const end = last ? audioChunkStartMs(last) + audioChunkDurationMs(last) : null
     kv(`PCM 通道 ${ch}`, `${chunks.length} 块 · ${first == null ? '-' : formatTime(first)}–${end == null ? '-' : formatTime(end)}`)
   }
   kv('调度节点数', streamAudioNodes.length)
