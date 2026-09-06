@@ -105,6 +105,9 @@ const currentTimeMs = ref(0)
 const isPlaying = ref(false)
 const isDraggingSeek = ref(false)
 const seekPreviewMs = ref(0)
+const showControls = ref(true)
+const CONTROLS_HIDE_DELAY_MS = 2800
+let controlsHideTimer: ReturnType<typeof setTimeout> | null = null
 const playProgressPercent = computed(() => {
   if (durationMs.value == null || durationMs.value <= 0)
     return 0
@@ -551,12 +554,14 @@ async function runStream(offset: number) {
     await streamUsmFrom(buildSource(), offset, async (data) => {
       if (token !== streamToken)
         return
+      // push() 会 transfer data.buffer，await 返回后 data 已 detach、byteLength 变为 0。
+      const dataByteLength = data.byteLength
       const r = await decoder!.push(data)
       if (token !== streamToken)
         return
       await handlePushResult(r)
-      receivedBytes += data.byteLength
-      loadedBytes += data.byteLength
+      receivedBytes += dataByteLength
+      loadedBytes += dataByteLength
       loadedChunksCount++
       progressLabel.value = `已加载 ${formatBytes(receivedBytes)}`
       await sbQueueRef!.waitForCapacity(signal)
@@ -699,11 +704,48 @@ function togglePlay() {
   const v = videoRef.value
   if (!v)
     return
+  showControlsTemporarily()
   if (v.paused)
     void v.play()
   else
     v.pause()
 }
+
+function clearControlsHideTimer() {
+  if (controlsHideTimer != null) {
+    clearTimeout(controlsHideTimer)
+    controlsHideTimer = null
+  }
+}
+
+function scheduleControlsHide() {
+  clearControlsHideTimer()
+  if (!isPlaying.value || phase.value !== 'playing' || isDraggingSeek.value)
+    return
+  controlsHideTimer = setTimeout(() => {
+    if (isPlaying.value && phase.value === 'playing' && !isDraggingSeek.value)
+      showControls.value = false
+    controlsHideTimer = null
+  }, CONTROLS_HIDE_DELAY_MS)
+}
+
+function showControlsTemporarily() {
+  showControls.value = true
+  scheduleControlsHide()
+}
+
+function onPlayerActivity() {
+  showControlsTemporarily()
+}
+
+watch([isPlaying, phase, isDraggingSeek], () => {
+  if (!isPlaying.value || phase.value !== 'playing' || isDraggingSeek.value) {
+    clearControlsHideTimer()
+    showControls.value = true
+    return
+  }
+  scheduleControlsHide()
+})
 
 function toggleFullscreen() {
   const shell = playerShellRef.value
@@ -716,6 +758,7 @@ function toggleFullscreen() {
 }
 
 function onPlayerKeydown(event: KeyboardEvent) {
+  showControlsTemporarily()
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement)
     return
   if (event.key === ' ' || event.key.toLowerCase() === 'k') {
@@ -866,6 +909,8 @@ function seekFromEvent(e: PointerEvent): number | null {
 }
 
 function onSeekPointerDown(e: PointerEvent) {
+  showControls.value = true
+  clearControlsHideTimer()
   const ms = seekFromEvent(e)
   if (ms == null)
     return
@@ -877,6 +922,7 @@ function onSeekPointerDown(e: PointerEvent) {
 function onSeekPointerMove(e: PointerEvent) {
   if (!isDraggingSeek.value)
     return
+  showControls.value = true
   const ms = seekFromEvent(e)
   if (ms != null)
     seekPreviewMs.value = ms
@@ -890,6 +936,7 @@ function onSeekPointerUp(e: PointerEvent) {
   ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
   if (ms != null)
     void performSeek(ms)
+  scheduleControlsHide()
 }
 
 /** 兜底：仅当浏览器因键盘等非自绘进度条方式 seek 到未缓冲区域时介入 */
@@ -1240,6 +1287,7 @@ async function copyDebug() {
 }
 
 function handleClose() {
+  clearControlsHideTimer()
   if (debugTimer) {
     clearInterval(debugTimer)
     debugTimer = null
@@ -1279,6 +1327,7 @@ function handleClose() {
 
 onMounted(() => startStreaming())
 onUnmounted(() => {
+  clearControlsHideTimer()
   if (debugTimer) {
     clearInterval(debugTimer)
     debugTimer = null
@@ -1341,8 +1390,11 @@ onUnmounted(() => {
             <div
               ref="playerShellRef"
               class="player-shell relative overflow-hidden rounded-lg bg-black outline-none"
+              :class="!showControls && isPlaying ? 'cursor-none' : ''"
               tabindex="0"
               @keydown="onPlayerKeydown"
+              @pointerdown="onPlayerActivity"
+              @pointermove="onPlayerActivity"
             >
               <video
                 ref="videoRef"
@@ -1362,7 +1414,10 @@ onUnmounted(() => {
               </div>
 
               <!-- 自绘控制栏 -->
-              <div class="absolute inset-x-0 bottom-0 flex items-center gap-3 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2.5 pt-8">
+              <div
+                class="absolute inset-x-0 bottom-0 flex items-center gap-3 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2.5 pt-8 transition-opacity duration-200"
+                :class="showControls ? 'opacity-100' : 'pointer-events-none opacity-0'"
+              >
                 <button
                   class="shrink-0 rounded-full p-1 text-white transition-colors hover:bg-white/20"
                   @click.stop="togglePlay"
