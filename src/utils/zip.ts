@@ -2,6 +2,7 @@ import type { GameFileRecord, PkgFile, VersionData, ZipSource } from '@/types'
 import { configure, Reader, Uint8ArrayWriter, ZipReader } from '@zip.js/zip.js'
 import zipWasmUrl from '@zip.js/zip.js/dist/zip-module.wasm?url'
 import zipWorkerUrl from '@zip.js/zip.js/dist/zip-web-worker.js?url'
+import { toRequestUrl } from '@/utils/request'
 import { getZipDir, setZipDir } from './idb'
 
 /** 下载块大小：8 MiB（zip.js 默认 64 KiB 会导致串行小 Range 请求，速度极慢） */
@@ -77,7 +78,7 @@ class VirtualHttpReader {
       const rangeStart = partOffset
       const rangeEnd = partOffset + readLength - 1
 
-      const response = await fetch(part.url, {
+      const response = await fetch(toRequestUrl(part.url), {
         headers: {
           Range: `bytes=${rangeStart}-${rangeEnd}`,
         },
@@ -183,7 +184,7 @@ async function buildParts(pkgs: PkgFile[], signal?: AbortSignal): Promise<Part[]
   for (const pkg of pkgs) {
     let size = pkg.size
     if (!Number.isSafeInteger(size) || size <= 0) {
-      const response = await fetch(pkg.url, { method: 'HEAD', signal })
+      const response = await fetch(toRequestUrl(pkg.url), { method: 'HEAD', signal })
       if (!response.ok)
         throw new Error(`HEAD ${pkg.url}: HTTP ${response.status} ${response.statusText}`)
       const contentLength = response.headers.get('content-length')
@@ -282,6 +283,7 @@ export async function streamZipFile(
   cacheKey: string,
   signal: AbortSignal,
   onChunk: (decompressed: Uint8Array, received: number, total: number) => void | Promise<void>,
+  skipBytes = 0,
 ): Promise<void> {
   const { reader, entries } = await openZip(pkgs, cacheKey, signal)
 
@@ -294,11 +296,21 @@ export async function streamZipFile(
 
     const total = entry.uncompressedSize
     let received = 0
+    let skipRemaining = skipBytes
 
     const writable = new WritableStream<Uint8Array>({
       write(chunk) {
         if (signal.aborted)
           return
+        // seek：丢弃前 skipBytes 字节（仍会从 entry 头部解压，仅丢弃输出）
+        if (skipRemaining > 0) {
+          if (skipRemaining >= chunk.byteLength) {
+            skipRemaining -= chunk.byteLength
+            return
+          }
+          chunk = chunk.slice(skipRemaining)
+          skipRemaining = 0
+        }
         received += chunk.byteLength
         return onChunk(chunk, received, total)
       },

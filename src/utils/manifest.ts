@@ -1,5 +1,6 @@
 import type { ParsedManifest } from '@/types'
 import protobuf from 'protobufjs/light'
+import { toRequestUrl } from '@/utils/request'
 import { getManifest, setManifest } from './idb'
 import { decodeZstd } from './zstdWorker'
 
@@ -52,7 +53,7 @@ export async function fetchAndParseManifest(
   if (cached)
     return cached
 
-  const res = await fetch(url, { signal })
+  const res = await fetch(toRequestUrl(url), { signal })
   if (!res.ok)
     throw new Error(`Manifest 下载失败：${res.status}`)
 

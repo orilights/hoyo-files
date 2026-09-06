@@ -8,7 +8,29 @@ import components from 'unplugin-vue-components/vite'
 import { defineConfig } from 'vite'
 import simpleHtmlPlugin from 'vite-plugin-simple-html'
 
+const RESOURCE_ORIGINS = [
+  'https://autopatchcn.yuanshen.com',
+  'https://autopatchcn.bhsr.com',
+  'https://autopatchcn.juequling.com',
+  'https://autopatchcn.bh3.com',
+]
+
+const resourceProxy = Object.fromEntries(RESOURCE_ORIGINS.map((origin) => {
+  const hostname = new URL(origin).hostname
+  const prefix = `/__dev_proxy/${hostname}`
+  return [prefix, {
+    target: origin,
+    changeOrigin: true,
+    rewrite: (requestPath: string) => requestPath.slice(prefix.length),
+  }]
+}))
+
 export default defineConfig({
+  server: {
+    proxy: {
+      ...resourceProxy,
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),

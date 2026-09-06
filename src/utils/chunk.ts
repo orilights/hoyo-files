@@ -1,19 +1,30 @@
 import type { ParsedChunk } from '@/types'
+import { toRequestUrl } from '@/utils/request'
 import { decodeZstd } from './zstdWorker'
 
 const CHUNK_CONCURRENCY = 4
+
+export interface DownloadChunksOptions {
+  /** 从第几个 chunk 开始消费（默认 0） */
+  startIndex?: number
+  /** 首个 chunk 解压后跳过的前导字节数（seek 到 chunk 内部偏移时使用） */
+  skipBytes?: number
+}
 
 export async function downloadChunks(
   chunks: ParsedChunk[],
   chunkUrlPrefix: string,
   signal: AbortSignal,
   onChunk: (decompressed: Uint8Array, index: number, total: number) => void | Promise<void>,
+  options: DownloadChunksOptions = {},
 ): Promise<void> {
   const total = chunks.length
+  const startIndex = options.startIndex ?? 0
   const readyChunks = new Map<number, Uint8Array>()
   const stateWaiters: Array<() => void> = []
-  let nextFetchIndex = 0
-  let nextConsumeIndex = 0
+  let nextFetchIndex = startIndex
+  let nextConsumeIndex = startIndex
+  let skipBytes = options.skipBytes ?? 0
   let activeFetches = 0
   let fatalError: Error | null = null
 
@@ -37,7 +48,7 @@ export async function downloadChunks(
       const chunk = chunks[index]
       activeFetches++
 
-      fetch(`${chunkUrlPrefix}/${chunk.id}`, { signal })
+      fetch(toRequestUrl(`${chunkUrlPrefix}/${chunk.id}`), { signal })
         .then(async (res) => {
           if (!res.ok)
             throw new Error(`Chunk 下载失败：${res.status}`)
@@ -114,7 +125,16 @@ export async function downloadChunks(
     readyChunks.delete(nextConsumeIndex)
     pumpFetches()
 
-    const decompressed = await decodeZstd(compressed, chunks[nextConsumeIndex].uncompressedSize)
+    let decompressed = await decodeZstd(compressed, chunks[nextConsumeIndex].uncompressedSize)
+    if (skipBytes > 0) {
+      if (skipBytes >= decompressed.length) {
+        skipBytes -= decompressed.length
+        nextConsumeIndex++
+        continue
+      }
+      decompressed = decompressed.slice(skipBytes)
+      skipBytes = 0
+    }
     await onChunk(decompressed, nextConsumeIndex, total)
     nextConsumeIndex++
   }

@@ -8,18 +8,35 @@ export interface UsmPcmPlaneChunk {
   channel: number
   sample_rate: number
   channel_count: number
+  timestamp_ms: number
   planes: Float32Array[]
+}
+
+export interface UsmHcaHeader {
+  channel: number
+  header: Uint8Array
 }
 
 export interface UsmPushResult {
   init_segment: Uint8Array | null
   clusters: Uint8Array[]
   audio_pcm_chunks: UsmPcmPlaneChunk[]
+  duration_ms: number | null
+  ivf_header: Uint8Array | null
+  hca_headers: UsmHcaHeader[]
+  keyframes: number[]
+}
+
+export interface UsmResetChannel {
+  channel: number
+  header: Uint8Array
+  skip: number
 }
 
 export interface UsmStreamDecoderProxy {
   push: (data: Uint8Array) => Promise<UsmPushResult>
   finish: () => Promise<UsmPushResult>
+  reset: (ivfHeader: Uint8Array, channels: UsmResetChannel[], baseOffset: number) => Promise<void>
   free: () => Promise<void>
 }
 
@@ -65,8 +82,16 @@ function getWorker(): Worker {
               channel: p.channel,
               sample_rate: p.sample_rate,
               channel_count: p.channel_count,
+              timestamp_ms: p.timestamp_ms,
               planes: (p.planes ?? []).map((buf: ArrayBuffer) => new Float32Array(buf)),
             })),
+            duration_ms: msg.result.duration_ms ?? null,
+            ivf_header: msg.result.ivf_header ? new Uint8Array(msg.result.ivf_header) : null,
+            hca_headers: (msg.result.hca_headers ?? []).map((h: any) => ({
+              channel: h.channel,
+              header: new Uint8Array(h.header),
+            })),
+            keyframes: msg.result.keyframes ?? [],
           }
           if (msg.type === 'pushed')
             proxy._resolvePush?.(result)
@@ -152,6 +177,18 @@ export async function getUsmStreamDecoder(keyHex: string): Promise<UsmStreamDeco
         w.postMessage({ type: 'finish', sessionId })
       })
     },
+    async reset(ivfHeader: Uint8Array, channels: UsmResetChannel[], baseOffset: number) {
+      // 缓存头需在后续 seek 复用，而 transfer 会 detach 原 buffer，
+      // 因此这里必须拷贝副本再转移，避免第二次 seek 复用已 detached 的缓冲。
+      const ivfBuf = ivfHeader.slice().buffer as ArrayBuffer
+      const chanBufs = channels.map(c => ({
+        channel: c.channel,
+        header: c.header.slice().buffer as ArrayBuffer,
+        skip: c.skip,
+      }))
+      const transfer = [ivfBuf, ...chanBufs.map(c => c.header)]
+      w.postMessage({ type: 'reset', sessionId, ivfHeader: ivfBuf, channels: chanBufs, baseOffset }, transfer)
+    },
     async free() {
       w.postMessage({ type: 'free', sessionId })
       sessionProxies.delete(sessionId)
@@ -202,14 +239,14 @@ export async function decodeUsm(data: Uint8Array, keyHex: string): Promise<Decod
 }
 
 /** 整段解码为 MKV（导出用），在 worker 中执行 */
-export async function decodeUsmToMkv(data: Uint8Array, keyHex: string, chIndex?: number | null): Promise<Uint8Array> {
+export async function decodeUsmToMkv(data: Uint8Array, keyHex: string, chIndex: number | null | undefined, audioCodec: 'wav' | 'flac'): Promise<Uint8Array> {
   const w = getWorker()
   const id = nextRequestId++
   const transferable = toTransferable(data)
 
   return new Promise<Uint8Array>((resolve, reject) => {
     pending.set(id, { resolve, reject })
-    w.postMessage({ type: 'decodeMkv', id, data: transferable, keyHex, chIndex }, [transferable])
+    w.postMessage({ type: 'decodeMkv', id, data: transferable, keyHex, chIndex, audioCodec }, [transferable])
   })
 }
 

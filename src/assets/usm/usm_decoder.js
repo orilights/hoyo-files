@@ -1,3 +1,5 @@
+/* @ts-self-types="./usm_decoder.d.ts" */
+
 export class UsmStreamDecoder {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
@@ -35,6 +37,14 @@ export class UsmStreamDecoder {
             throw takeFromExternrefTable0(ret[1]);
         }
         return takeFromExternrefTable0(ret[0]);
+    }
+    reset(ivf_header, channels, base_offset) {
+        const ptr0 = passArray8ToWasm0(ivf_header, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.usmstreamdecoder_reset(this.__wbg_ptr, ptr0, len0, channels, base_offset);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
     }
 }
 if (Symbol.dispose) UsmStreamDecoder.prototype[Symbol.dispose] = UsmStreamDecoder.prototype.free;
@@ -76,6 +86,28 @@ export function decode_usm_to_mkv(data, key_hex, ch_index) {
 export function init() {
     wasm.init();
 }
+
+export function mux_ivf_flac_to_mkv(ivf, tracks) {
+    const ptr0 = passArray8ToWasm0(ivf, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.mux_ivf_flac_to_mkv(ptr0, len0, tracks);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+export function prepare_usm_mkv(data, key_hex, ch_index) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.prepare_usm_mkv(ptr0, len0, ptr1, len1, isLikeNone(ch_index) ? 0xFFFFFF : ch_index);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -85,6 +117,12 @@ function __wbg_get_imports() {
             const len1 = WASM_VECTOR_LEN;
             getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
             getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
+        __wbg___wbindgen_number_get_f73a1244370fcc2c: function(arg0, arg1) {
+            const obj = arg1;
+            const ret = typeof(obj) === 'number' ? obj : undefined;
+            getDataViewMemory0().setFloat64(arg0 + 8 * 1, isLikeNone(ret) ? 0 : ret, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
         },
         __wbg___wbindgen_throw_9c31b086c2b26051: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
@@ -104,6 +142,10 @@ function __wbg_get_imports() {
             const ret = arg0[arg1 >>> 0];
             return ret;
         },
+        __wbg_get_dcf82ab8aad1a593: function() { return handleError(function (arg0, arg1) {
+            const ret = Reflect.get(arg0, arg1);
+            return ret;
+        }, arguments); },
         __wbg_instanceof_Uint8Array_abd07d4bd221d50b: function(arg0) {
             let result;
             try {
@@ -112,6 +154,10 @@ function __wbg_get_imports() {
                 result = false;
             }
             const ret = result;
+            return ret;
+        },
+        __wbg_isArray_94898ed3aad6947b: function(arg0) {
+            const ret = Array.isArray(arg0);
             return ret;
         },
         __wbg_length_2591a0f4f659a55c: function(arg0) {

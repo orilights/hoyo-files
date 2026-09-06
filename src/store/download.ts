@@ -1,8 +1,10 @@
 import type { ChunkManifest, DownloadStatus, DownloadTask, GameFileRecord, ParsedFile, UsmSourceKind, ZipSource } from '@/types'
 import { defineStore } from 'pinia'
 import { API_BASE } from '@/constants/core'
+import { useSettings } from '@/store/settings'
 import { downloadChunks } from '@/utils/chunk'
 import { fetchAndParseManifest } from '@/utils/manifest'
+import { toRequestUrl } from '@/utils/request'
 import { decodeUsmToMkv } from '@/utils/usm'
 import { extractZipFile, getZipDirCacheKey } from '@/utils/zip'
 
@@ -363,7 +365,7 @@ export const useDownload = defineStore('download', () => {
     if (sourceKind === 'direct' && directDownloadUrl) {
       setTaskStatus(task.id, 'downloading')
       setTaskProgress(task.id, 0)
-      const res = await fetch(directDownloadUrl, { signal })
+      const res = await fetch(toRequestUrl(directDownloadUrl), { signal })
       if (!res.ok)
         throw new Error(`HTTP ${res.status}`)
       const total = Number(res.headers.get('Content-Length') ?? 0)
@@ -466,7 +468,8 @@ export const useDownload = defineStore('download', () => {
     setTaskStatus(task.id, 'merging')
     setTaskProgress(task.id, 85)
 
-    const mkvData = await decodeUsmToMkv(usmBytes!, keyHex, data.chIndex ?? undefined)
+    const settings = useSettings()
+    const mkvData = await decodeUsmToMkv(usmBytes!, keyHex, data.chIndex ?? undefined, settings.mkvAudioCodec)
     const baseName = filename.replace(/\.usm$/i, '')
     triggerDownload(`${baseName}.mkv`, mkvData, 'video/x-matroska')
 
