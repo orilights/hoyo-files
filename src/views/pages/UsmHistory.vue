@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { GameFileRecord, UsmSourceKind, UsmSourceOption, VersionEntry, ZipSource } from '@/types'
 import { useGameVersions } from '@/api/files'
-import { useUsmHistory } from '@/api/usm'
+import { useUsmDescriptions, useUsmHistory } from '@/api/usm'
 import { API_BASE, GameList } from '@/constants/core'
 import { useDownload } from '@/store/download'
 import { useSettings } from '@/store/settings'
@@ -57,6 +57,19 @@ interface DisplayFile extends ProcessedFile {
 
 const versionsQuery = useGameVersions(gameId)
 const historyQuery = useUsmHistory(gameId)
+const descriptionsQuery = useUsmDescriptions(gameId)
+
+function getUsmDescription(filename: string): string {
+  const name = filename.replace(/\.usm$/i, '')
+  const description = descriptionsQuery.data.value?.[name]?.trim() ?? ''
+  if (!description)
+    return ''
+  if (name.endsWith('Boy'))
+    return `${description}（空）`
+  if (name.endsWith('Girl'))
+    return `${description}（荧）`
+  return description
+}
 
 const sortedVersionList = computed<string[]>(() => {
   if (!versionsQuery.data.value)
@@ -227,7 +240,9 @@ const displayFiles = computed<DisplayFile[]>(() => {
   let files = filteredFiles.value
   if (q) {
     files = files.filter(f =>
-      f.filename.toLowerCase().includes(q) || f.path.toLowerCase().includes(q),
+      f.filename.toLowerCase().includes(q)
+      || f.path.toLowerCase().includes(q)
+      || getUsmDescription(f.filename).toLowerCase().includes(q),
     )
   }
   if (changeTypeFilter.value) {
@@ -610,7 +625,7 @@ function onSourcePick(option: UsmSourceOption) {
               <input
                 v-model="searchQuery"
                 type="text"
-                placeholder="搜索文件"
+                placeholder="搜索文件名、路径或描述"
                 class="w-full rounded-lg border border-gray-200 bg-white py-1.5 pl-7 pr-3 text-sm text-gray-700 placeholder-gray-400 focus:border-blue-400 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500"
               >
             </div>
@@ -720,6 +735,12 @@ function onSourcePick(option: UsmSourceOption) {
                     class="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium leading-none bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400"
                   >可播放</span>
                 </div>
+                <p
+                  v-if="getUsmDescription(file.filename)"
+                  class="mt-1 line-clamp-2 break-words text-xs leading-5 text-gray-600 dark:text-gray-300"
+                  :title="getUsmDescription(file.filename)"
+                  v-html="highlightText(getUsmDescription(file.filename), searchQuery)"
+                />
                 <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
                   <span v-if="file.changeType" class="flex items-center">
                     <template v-if="file.changeType === 'changed'">
