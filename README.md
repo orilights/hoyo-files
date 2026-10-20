@@ -60,3 +60,4 @@
 ## Credits
 
 - 原神 USM 密钥来自 [ToaHartor/GI-cutscenes](https://github.com/ToaHartor/GI-cutscenes) 仓库
+- 原神 AES 加密 USM 格式参考 [The-Steambird/charlotte](https://github.com/The-Steambird/charlotte) 仓库
